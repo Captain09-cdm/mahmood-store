@@ -58,7 +58,9 @@ export default function FruitApp({ displayName }: { displayName: string }) {
     [archives, setArchives] = useState<Archive[]>([]),
     [periodStart, setPeriodStart] = useState(""),
     [busy, setBusy] = useState(false),
-    [notice, setNotice] = useState("");
+    [notice, setNotice] = useState(""),
+    [traderDialog, setTraderDialog] = useState(false),
+    [newTraderName, setNewTraderName] = useState("");
   const [item, setItem] = useState(""),
     [date, setDate] = useState(iso()),
     [trader, setTrader] = useState(""),
@@ -172,14 +174,22 @@ export default function FruitApp({ displayName }: { displayName: string }) {
       setNotice("فایلی باکئەپ دروست نییە");
     }
   }
-  async function addTrader() {
-    const name = prompt("ناوی نوێ بنووسە");
-    if (!name?.trim()) return;
+  function openTraderDialog() {
+    setNewTraderName("");
+    setTraderDialog(true);
+  }
+  async function addTrader(e: FormEvent) {
+    e.preventDefault();
+    const name = newTraderName.trim();
+    if (!name) return;
     const r = await post({ action: "trader", name });
     if (r.ok) {
       const t = await r.json();
       setTraders((x) => [...x, t]);
       setTrader(t.name);
+      setTraderDialog(false);
+      setNewTraderName("");
+      setNotice("ناوە نوێیەکە زیاد کرا");
     }
   }
   async function saveBuy(e: FormEvent) {
@@ -349,7 +359,12 @@ export default function FruitApp({ displayName }: { displayName: string }) {
                       ))}
                     </select>
                   </div>
-                  <button type="button" onClick={addTrader} className="addbtn">
+                  <button
+                    type="button"
+                    onClick={openTraderDialog}
+                    className="addbtn"
+                    aria-label="زیادکردنی ناوی نوێ"
+                  >
                     ＋
                   </button>
                 </div>
@@ -819,6 +834,65 @@ export default function FruitApp({ displayName }: { displayName: string }) {
           onClose={() => setEdit(null)}
           onSave={saveEdit}
         />
+      )}
+      {traderDialog && (
+        <div
+          className="modalbackdrop"
+          role="presentation"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setTraderDialog(false);
+          }}
+        >
+          <form
+            className="namemodal"
+            onSubmit={addTrader}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="new-trader-title"
+          >
+            <button
+              type="button"
+              className="modalclose"
+              onClick={() => setTraderDialog(false)}
+              aria-label="داخستن"
+            >
+              ×
+            </button>
+            <div className="modalicon" aria-hidden="true">＋</div>
+            <div className="modalheading">
+              <h3 id="new-trader-title">زیادکردنی ناوی نوێ</h3>
+              <p>ناوی معل یان مامەڵەکارەکە لێرە بنووسە</p>
+            </div>
+            <label className="modalfield" htmlFor="new-trader-name">
+              <span>ناو</span>
+              <input
+                id="new-trader-name"
+                value={newTraderName}
+                onChange={(e) => setNewTraderName(e.target.value)}
+                placeholder="بۆ نموونە: ئەحمەد"
+                autoFocus
+                autoComplete="off"
+              />
+            </label>
+            <div className="modalactions">
+              <button
+                type="submit"
+                className="primary"
+                disabled={busy || !newTraderName.trim()}
+              >
+                {busy ? "چاوەڕوان بە..." : "زیادکردن"}
+              </button>
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => setTraderDialog(false)}
+                disabled={busy}
+              >
+                پاشگەزبوونەوە
+              </button>
+            </div>
+          </form>
+        </div>
       )}
     </main>
   );
