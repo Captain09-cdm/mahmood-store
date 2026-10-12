@@ -6,42 +6,9 @@ import {
   localAction,
   restoreBackup,
 } from "./local-store";
-type Purchase = {
-  id: number;
-  item: string;
-  date: string;
-  created_at: string;
-  trader: string;
-  buy_kg: number;
-  kilo_price: number;
-  subtotal: number;
-  fee: number;
-  total: number;
-  paid: boolean;
-  paid_at: string | null;
-  sold_kg: number | null;
-  sold_money: number | null;
-  sale_expense: number;
-  sale_expense_reason: string;
-  difference_kg: number | null;
-  profit: number | null;
-  sold_at: string | null;
-};
-type Trader = { id: number; name: string };
-type Archive = {
-  id: number;
-  from: string;
-  to: string;
-  cleared_at: string;
-  records: Purchase[];
-};
-const iso = () => new Date().toISOString().slice(0, 10);
-const localIso = (d: Date) => {
-  const copy = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
-  return copy.toISOString().slice(0, 10);
-};
-const money = (n: number) =>
-  Math.round(n || 0).toLocaleString("en-US") + " د.ع";
+import { Archive, Purchase, Trader, localDate, money } from "./reporting";
+import Reports, { ReportDocument, ReportSnapshot } from "./Reports";
+type PrintJob = { kind: "receipts"; rows: Purchase[]; receiptKind: "buy" | "sell" } | { kind: "report"; snapshot: ReportSnapshot };
 const dt = (v: string | null) =>
   v
     ? new Intl.DateTimeFormat("ckb-IQ", {
@@ -49,7 +16,7 @@ const dt = (v: string | null) =>
         timeStyle: "short",
       }).format(new Date(v))
     : "—";
-export default function FruitApp({ displayName }: { displayName: string }) {
+export default function FruitApp({ displayName, storeId, storeName, onSwitchStore }: { displayName: string; storeId: string; storeName: string; onSwitchStore: () => void }) {
   const [view, setView] = useState<"buy" | "sell" | "history" | "report">(
       "buy",
     ),
@@ -62,7 +29,7 @@ export default function FruitApp({ displayName }: { displayName: string }) {
     [traderDialog, setTraderDialog] = useState(false),
     [newTraderName, setNewTraderName] = useState("");
   const [item, setItem] = useState(""),
-    [date, setDate] = useState(iso()),
+    [date, setDate] = useState(localDate()),
     [trader, setTrader] = useState(""),
     [kg, setKg] = useState(0),
     [price, setPrice] = useState(0),
@@ -72,13 +39,7 @@ export default function FruitApp({ displayName }: { displayName: string }) {
     [soldMoney, setSoldMoney] = useState(0),
     [expense, setExpense] = useState(0),
     [expenseReason, setExpenseReason] = useState("");
-  const [from, setFrom] = useState(""),
-    [to, setTo] = useState(""),
-    [weekItem, setWeekItem] = useState(""),
-    [receipt, setReceipt] = useState<{
-      record: Purchase;
-      kind: "buy" | "sell";
-    } | null>(null),
+  const [printJob, setPrintJob] = useState<PrintJob | null>(null),
     [edit, setEdit] = useState<{
       record: Purchase;
       kind: "buy" | "sell";
@@ -93,81 +54,37 @@ export default function FruitApp({ displayName }: { displayName: string }) {
   const diff = purchase ? purchase.buy_kg - soldKg : 0,
     profit = purchase ? soldMoney - purchase.total - expense : 0;
   const load = async () => {
-    const d = getLocalStore();
+    const d = getLocalStore(storeId);
     setTraders(d.traders);
     setRecords(d.purchases);
     setArchives(d.archives || []);
     setPeriodStart(d.period_started_at);
   };
   useEffect(() => {
-    load();
+    // Hydrate this store's browser-only data after static rendering.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    load().catch(e => setNotice(e.message));
+    // The parent remounts this app whenever the store changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const reportRecords = useMemo(
-    () =>
-      records.filter((r) => (!from || r.date >= from) && (!to || r.date <= to)),
-    [records, from, to],
-  );
-  const stats = useMemo(() => {
-    const sold = reportRecords.filter((r) => r.sold_money != null),
-      profits = sold.filter((r) => (r.profit || 0) >= 0),
-      losses = sold.filter((r) => (r.profit || 0) < 0);
-    return {
-      buy: reportRecords.reduce((s, r) => s + r.total, 0),
-      sales: sold.reduce((s, r) => s + (r.sold_money || 0), 0),
-      expenses: sold.reduce((s, r) => s + (r.sale_expense || 0), 0),
-      profit: profits.reduce((s, r) => s + (r.profit || 0), 0),
-      loss: losses.reduce((s, r) => s + Math.abs(r.profit || 0), 0),
-      low: sold
-        .filter((r) => (r.difference_kg || 0) > 0)
-        .reduce((s, r) => s + Math.abs(r.difference_kg || 0), 0),
-      over: sold
-        .filter((r) => (r.difference_kg || 0) < 0)
-        .reduce((s, r) => s + Math.abs(r.difference_kg || 0), 0),
-      unpaid: reportRecords
-        .filter((r) => !r.paid)
-        .reduce((s, r) => s + r.total, 0),
-    };
-  }, [reportRecords]);
-  const weekInfo = useMemo(() => {
-    const today = new Date();
-    const start = new Date(today);
-    start.setHours(0, 0, 0, 0);
-    start.setDate(start.getDate() - ((start.getDay() + 1) % 7));
-    const end = new Date(start);
-    end.setDate(end.getDate() + 6);
-    const sold = records.filter((r) => {
-      if (r.sold_money == null || !r.sold_at) return false;
-      const saleDate = new Date(r.sold_at);
-      return saleDate >= start && saleDate < new Date(end.getTime() + 86400000);
-    });
-    const grouped = new Map<string, { name: string; rows: Purchase[] }>();
-    sold.forEach((r) => {
-      const key = r.item.trim().toLocaleLowerCase();
-      const group = grouped.get(key) || { name: r.item.trim(), rows: [] };
-      group.rows.push(r);
-      grouped.set(key, group);
-    });
-    return {
-      start: localIso(start),
-      end: localIso(end),
-      groups: [...grouped.values()].sort((a, b) =>
-        a.name.localeCompare(b.name, "ckb"),
-      ),
-    };
-  }, [records]);
-  const visibleWeekGroups = weekItem
-    ? weekInfo.groups.filter((g) => g.name === weekItem)
-    : weekInfo.groups;
+  useEffect(() => {
+    if (!printJob) return;
+    const clear = () => setPrintJob(null);
+    window.addEventListener("afterprint", clear);
+    const timer = window.setTimeout(() => window.print(), 150);
+    return () => { window.clearTimeout(timer); window.removeEventListener("afterprint", clear); };
+  }, [printJob]);
   async function post(body: Record<string, unknown>) {
     setBusy(true);
-    const r = await localAction(body);
-    setBusy(false);
-    return r;
+    try { return await localAction(storeId, body); }
+    catch { setNotice("پاشەکەوتکردن سەرکەوتوو نەبوو. شوێنی پاشەکەوتکردنی وێبگەڕ بپشکنە."); return { ok: false, json: async () => ({ ok: false }) }; }
+    finally { setBusy(false); }
   }
   async function importBackup(file?: File) {
     if (!file) return;
     try {
-      await restoreBackup(file);
+      if (!confirm(`ئەم باکئەپە جێگای تۆمارەکانی «${storeName}» دەگرێتەوە. دڵنیایت؟`)) return;
+      await restoreBackup(storeId, file);
       await load();
       setNotice("باکئەپەکە بە سەرکەوتوویی گەڕێندرایەوە");
     } catch {
@@ -184,7 +101,7 @@ export default function FruitApp({ displayName }: { displayName: string }) {
     if (!name) return;
     const r = await post({ action: "trader", name });
     if (r.ok) {
-      const t = await r.json();
+      const t = await r.json() as Trader;
       setTraders((x) => [...x, t]);
       setTrader(t.name);
       setTraderDialog(false);
@@ -273,14 +190,12 @@ export default function FruitApp({ displayName }: { displayName: string }) {
     const r = await post({ action: "reset", confirm: "CLEAR" });
     if (r.ok) {
       setNotice("هەژماری نوێ دەستی پێکرد؛ دەورەی پێشوو لە ئەرشیف پارێزرا");
-      setFrom("");
-      setTo("");
+
       await load();
     }
   }
   function printReceipt(r: Purchase, kind: "buy" | "sell") {
-    setReceipt({ record: r, kind });
-    setTimeout(() => window.print(), 80);
+    setPrintJob({ kind: "receipts", rows: [r], receiptKind: kind });
   }
   return (
     <main className="shell">
@@ -288,11 +203,11 @@ export default function FruitApp({ displayName }: { displayName: string }) {
         <div className="brand">
           <div className="brandmark">M</div>
           <div>
-            <h1>Mahmood</h1>
+            <h1>{storeName}</h1>
             <p>سیستەمی کڕین و فرۆشتن</p>
           </div>
         </div>
-        <span className="offline-badge">● ئۆفلاین</span>
+        <button type="button" className="store-switch" onClick={onSwitchStore}>گۆڕینی فرۆشگا / دەرچوون</button>
       </header>
       <section className="content">
         <div className="welcome">
@@ -549,251 +464,14 @@ export default function FruitApp({ displayName }: { displayName: string }) {
             </div>
           </section>
         )}
-        {view === "report" && (
-          <section className="report">
-            <div className="report-title">
-              <div>
-                <h2>ڕاپۆرتی هەژمار</h2>
-                <p>دەورە لە {dt(periodStart)} دەستی پێکردووە</p>
-              </div>
-              <button
-                onClick={() => {
-                  setReceipt(null);
-                  setTimeout(() => window.print(), 50);
-                }}
-                className="secondary"
-              >
-                چاپی ڕاپۆرت 🖨
-              </button>
-            </div>
-            <div className="range">
-              <Field label="لە بەرواری">
-                <input
-                  type="date"
-                  value={from}
-                  onChange={(e) => setFrom(e.target.value)}
-                />
-              </Field>
-              <Field label="تا بەرواری">
-                <input
-                  type="date"
-                  value={to}
-                  onChange={(e) => setTo(e.target.value)}
-                />
-              </Field>
-              <button
-                onClick={() => {
-                  setFrom("");
-                  setTo("");
-                }}
-              >
-                هەمووی
-              </button>
-            </div>
-            <div className="metricgrid">
-              <Metric label="کۆی کڕین" value={money(stats.buy)} />
-              <Metric
-                label="کۆی فرۆشتن"
-                value={money(stats.sales)}
-                tone="blue"
-              />
-              <Metric
-                label="کۆی قازانج"
-                value={money(stats.profit)}
-                tone="green"
-              />
-              <Metric label="کۆی زیان" value={money(stats.loss)} tone="red" />
-              <Metric
-                label="کۆی مەسروفات"
-                value={money(stats.expenses)}
-                tone="orange"
-              />
-              <Metric
-                label="قەرزی نەدراو"
-                value={money(stats.unpaid)}
-                tone="red"
-              />
-              <Metric
-                label="کۆی وەزنی زیاد"
-                value={`${stats.over.toLocaleString()} کیلۆ`}
-                tone="blue"
-              />
-              <Metric
-                label="کۆی وەزنی کەم"
-                value={`${stats.low.toLocaleString()} کیلۆ`}
-                tone="orange"
-              />
-            </div>
-            <section className="card weekly-items">
-              <div className="weekly-head">
-                <div>
-                  <Head n="٧" title="فرۆشی ئەم هەفتەیە بە پێی بابەت" />
-                  <p>
-                    لە {weekInfo.start} تا {weekInfo.end}
-                  </p>
-                </div>
-                <select
-                  value={weekItem}
-                  onChange={(e) => setWeekItem(e.target.value)}
-                >
-                  <option value="">هەموو بابەتەکان</option>
-                  {weekInfo.groups.map((g) => (
-                    <option key={g.name} value={g.name}>
-                      {g.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              {visibleWeekGroups.length === 0 ? (
-                <p className="empty">ئەم هەفتەیە هیچ فرۆشتنێک تۆمار نەکراوە</p>
-              ) : (
-                <div className="weekly-grid">
-                  {visibleWeekGroups.map((group) => {
-                    const totals = group.rows.reduce(
-                      (sum, r) => ({
-                        bought: sum.bought + r.buy_kg,
-                        sold: sum.sold + (r.sold_kg || 0),
-                        money: sum.money + (r.sold_money || 0),
-                        expense: sum.expense + (r.sale_expense || 0),
-                        profit: sum.profit + Math.max(r.profit || 0, 0),
-                        loss: sum.loss + Math.abs(Math.min(r.profit || 0, 0)),
-                        low: sum.low + Math.max(r.difference_kg || 0, 0),
-                        over:
-                          sum.over +
-                          Math.abs(Math.min(r.difference_kg || 0, 0)),
-                      }),
-                      {
-                        bought: 0,
-                        sold: 0,
-                        money: 0,
-                        expense: 0,
-                        profit: 0,
-                        loss: 0,
-                        low: 0,
-                        over: 0,
-                      },
-                    );
-                    return (
-                      <details className="weekly-card" key={group.name}>
-                        <summary>
-                          <div>
-                            <b>{group.name}</b>
-                            <small>{group.rows.length} پسوڵەی فرۆشتن</small>
-                          </div>
-                          <strong>{money(totals.money)}</strong>
-                        </summary>
-                        <div className="weekly-totals">
-                          <span>
-                            کڕدراو <b>{totals.bought} کیلۆ</b>
-                          </span>
-                          <span>
-                            فرۆشراو <b>{totals.sold} کیلۆ</b>
-                          </span>
-                          <span>
-                            مەسروفات <b>{money(totals.expense)}</b>
-                          </span>
-                          <span className="green">
-                            قازانج <b>{money(totals.profit)}</b>
-                          </span>
-                          <span className="red">
-                            زیان <b>{money(totals.loss)}</b>
-                          </span>
-                          <span>
-                            وەزنی کەم <b>{totals.low} کیلۆ</b>
-                          </span>
-                          <span>
-                            وەزنی زیاد <b>{totals.over} کیلۆ</b>
-                          </span>
-                        </div>
-                        <div className="weekly-lines">
-                          {group.rows.map((r) => (
-                            <div key={r.id}>
-                              <span>
-                                {dt(r.sold_at)} · {r.trader}
-                              </span>
-                              <span>
-                                {r.sold_kg} کیلۆ · {money(r.sold_money || 0)}
-                              </span>
-                              <b
-                                className={
-                                  (r.profit || 0) >= 0 ? "green" : "red"
-                                }
-                              >
-                                {(r.profit || 0) >= 0 ? "قازانج" : "زیان"}{" "}
-                                {money(Math.abs(r.profit || 0))}
-                              </b>
-                            </div>
-                          ))}
-                        </div>
-                      </details>
-                    );
-                  })}
-                </div>
-              )}
-            </section>
-            <section className="card report-details">
-              <Head n="≡" title="وردەکاری تاکەکان" />
-              {reportRecords.length === 0 ? (
-                <p className="empty">مامەڵە نییە</p>
-              ) : (
-                reportRecords.map((r) => (
-                  <div className="reportrow" key={r.id}>
-                    <div>
-                      <b>{r.item}</b>
-                      <small>
-                        {r.date} · {r.trader}
-                      </small>
-                    </div>
-                    <div>
-                      <span>کڕین {money(r.total)}</span>
-                      <span>
-                        فرۆشتن{" "}
-                        {r.sold_money == null ? "—" : money(r.sold_money)}
-                      </span>
-                    </div>
-                    <div>
-                      <span>
-                        {r.difference_kg == null
-                          ? "کێش —"
-                          : `${r.difference_kg >= 0 ? "کەم" : "زیاد"} ${Math.abs(r.difference_kg)} کیلۆ`}
-                      </span>
-                      <strong
-                        className={(r.profit || 0) >= 0 ? "green" : "red"}
-                      >
-                        {r.profit == null
-                          ? "—"
-                          : `${r.profit >= 0 ? "قازانج" : "زیان"} ${money(Math.abs(r.profit))}`}
-                      </strong>
-                    </div>
-                  </div>
-                ))
-              )}
-            </section>
-            <button
-              onClick={resetPeriod}
-              disabled={busy || records.length === 0}
-              className="clearbtn"
-            >
-              پاککردنەوەی هەژماری ئەم هەفتەیە
-              <small>
-                تۆمارەکان نازڕێنەوە؛ دەچنە ئەرشیف ({archives.length})
-              </small>
-            </button>
-            <div className="backup-actions">
-              <button type="button" onClick={downloadBackup}>
-                داگرتنی باکئەپ
-              </button>
-              <label>
-                گەڕاندنەوەی باکئەپ
-                <input
-                  type="file"
-                  accept=".json,application/json"
-                  onChange={(e) => importBackup(e.target.files?.[0])}
-                />
-              </label>
-            </div>
-          </section>
-        )}
+        {view === "report" && <Reports
+          records={records} archives={archives} periodStart={periodStart} storeName={storeName} busy={busy}
+          onPrintReport={snapshot => setPrintJob({ kind: "report", snapshot })}
+          onPrintReceipts={(rows, receiptKind) => setPrintJob({ kind: "receipts", rows, receiptKind })}
+          onReset={resetPeriod}
+          onBackup={() => downloadBackup(storeId, storeName)}
+          onImport={importBackup}
+        />}
       </section>
       <nav className="bottomnav four">
         <Nav
@@ -817,16 +495,21 @@ export default function FruitApp({ displayName }: { displayName: string }) {
         <Nav
           active={view === "report"}
           onClick={() => {
-            setReceipt(null);
+            setPrintJob(null);
             setView("report");
           }}
           icon="▦"
           label="ڕاپۆرت"
         />
       </nav>
-      {receipt && <Receipt record={receipt.record} kind={receipt.kind} />}{" "}
+      {printJob && <div className="print-only print-root">
+        {printJob.kind === "report"
+          ? <ReportDocument snapshot={printJob.snapshot} storeName={storeName} />
+          : printJob.rows.map(r => <Receipt key={r.id} record={r} kind={printJob.receiptKind} storeName={storeName} />)}
+      </div>}
       {edit && (
         <EditReceipt
+          storeName={storeName}
           record={edit.record}
           kind={edit.kind}
           traders={traders}
@@ -986,23 +669,8 @@ function Nav({
     </button>
   );
 }
-function Metric({
-  label,
-  value,
-  tone = "",
-}: {
-  label: string;
-  value: string;
-  tone?: string;
-}) {
-  return (
-    <div className={`metric ${tone}`}>
-      <small>{label}</small>
-      <strong>{value}</strong>
-    </div>
-  );
-}
 function EditReceipt({
+  storeName,
   record,
   kind,
   traders,
@@ -1010,6 +678,7 @@ function EditReceipt({
   onClose,
   onSave,
 }: {
+  storeName: string;
   record: Purchase;
   kind: "buy" | "sell";
   traders: Trader[];
@@ -1057,7 +726,7 @@ function EditReceipt({
       <form className="edit-modal" onSubmit={submit}>
         <div className="edit-head">
           <div>
-            <small>Mahmood</small>
+            <small>{storeName}</small>
             <h3>
               {kind === "buy"
                 ? "دەستکاری پسوڵەی کڕین"
@@ -1178,20 +847,22 @@ function EditReceipt({
 function Receipt({
   record: r,
   kind,
+  storeName,
 }: {
+  storeName: string;
   record: Purchase;
   kind: "buy" | "sell";
 }) {
   return (
-    <section className="print-only receipt-paper">
+    <section className="receipt-paper batch-receipt">
       <header>
         <div className="receipt-logo">M</div>
-        <h1>Mahmood</h1>
+        <h1>{storeName}</h1>
         <p>{kind === "buy" ? "پسوڵەی کڕین" : "پسوڵەی فرۆشتن"}</p>
       </header>
       <div className="receipt-meta">
         <span>ژمارە: {r.id}</span>
-        <span>{dt(kind === "buy" ? r.created_at : r.sold_at)}</span>
+        <span>بەروار: {kind === "buy" ? r.date : dt(r.sold_at)}</span>
       </div>
       <div className="receipt-lines">
         <p>

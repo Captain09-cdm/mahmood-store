@@ -1,11 +1,16 @@
 "use client";
+import type { Archive, Purchase, Trader } from "./reporting";
 const KEY = "mahmood_store_v1";
+function storeKey(storeId: string) {
+  if (!storeId) throw new Error("store required");
+  return storeId === "legacy" ? KEY : `${KEY}_${storeId}`;
+}
 const now = () => new Date().toISOString();
 type Store = {
-  traders: any[];
-  purchases: any[];
+  traders: Trader[];
+  purchases: Purchase[];
   period_started_at: string;
-  archives: any[];
+  archives: Archive[];
 };
 const empty = (): Store => ({
   traders: [],
@@ -13,9 +18,9 @@ const empty = (): Store => ({
   period_started_at: now(),
   archives: [],
 });
-export function getLocalStore(): Store {
+export function getLocalStore(storeId: string): Store {
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = localStorage.getItem(storeKey(storeId));
     if (!raw) return empty();
     const d = JSON.parse(raw);
     return {
@@ -25,15 +30,15 @@ export function getLocalStore(): Store {
       archives: d.archives || [],
     };
   } catch {
-    return empty();
+    throw new Error("نەتوانرا داتاکان بخوێندرێنەوە. داتای وێبگەڕ مەسڕەوە.");
   }
 }
-function save(d: Store) {
-  localStorage.setItem(KEY, JSON.stringify(d));
+function save(storeId: string, d: Store) {
+  localStorage.setItem(storeKey(storeId), JSON.stringify(d));
 }
-export async function localAction(b: Record<string, unknown>) {
-  const data = getLocalStore();
-  let result: any = { ok: true };
+export async function localAction(storeId: string, b: Record<string, unknown>) {
+  const data = getLocalStore(storeId);
+  let result: Purchase | Trader | { ok: boolean } = { ok: true };
   if (b.action === "trader") {
     const name = String(b.name || "").trim();
     if (!name) return response(false);
@@ -47,6 +52,7 @@ export async function localAction(b: Record<string, unknown>) {
     if (
       !String(b.item || "").trim() ||
       !String(b.trader || "").trim() ||
+      !Number.isFinite(buyKg) || !Number.isFinite(kiloPrice) || !Number.isFinite(subtotal * 1.06) ||
       buyKg <= 0 ||
       kiloPrice <= 0
     )
@@ -78,7 +84,7 @@ export async function localAction(b: Record<string, unknown>) {
       soldKg = Number(b.soldKg),
       soldMoney = Number(b.soldMoney),
       expense = Number(b.expense || 0);
-    if (!r || soldKg <= 0 || soldMoney <= 0 || expense < 0)
+    if (!r || !Number.isFinite(soldKg) || !Number.isFinite(soldMoney) || !Number.isFinite(expense) || soldKg <= 0 || soldMoney <= 0 || expense < 0)
       return response(false);
     r.sold_kg = soldKg;
     r.sold_money = soldMoney;
@@ -94,6 +100,7 @@ export async function localAction(b: Record<string, unknown>) {
       kiloPrice = Number(b.kiloPrice);
     if (
       !r ||
+      !Number.isFinite(buyKg) || !Number.isFinite(kiloPrice) || !Number.isFinite(buyKg * kiloPrice * 1.06) ||
       !String(b.item || "").trim() ||
       !String(b.trader || "").trim() ||
       buyKg <= 0 ||
@@ -135,25 +142,25 @@ export async function localAction(b: Record<string, unknown>) {
     data.period_started_at = cleared;
     result = { ok: true };
   } else return response(false);
-  save(data);
+  save(storeId, data);
   return response(true, result);
 }
-function response(ok: boolean, value: any = {}) {
+function response(ok: boolean, value: Purchase | Trader | { ok?: boolean } = {}) {
   return { ok, json: async () => value };
 }
-export function downloadBackup() {
-  const blob = new Blob([JSON.stringify(getLocalStore(), null, 2)], {
+export function downloadBackup(storeId: string, storeName: string) {
+  const blob = new Blob([JSON.stringify({ ...getLocalStore(storeId), storeId, storeName }, null, 2)], {
     type: "application/json",
   });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = `mahmood-backup-${new Date().toISOString().slice(0, 10)}.json`;
+  a.download = `mahmood-${storeName.replace(/[<>:"/\\|?*]/g, "-")}-backup-${new Date().toISOString().slice(0, 10)}.json`;
   a.click();
   URL.revokeObjectURL(a.href);
 }
-export async function restoreBackup(file: File) {
+export async function restoreBackup(storeId: string, file: File) {
   const data = JSON.parse(await file.text());
   if (!Array.isArray(data.purchases) || !Array.isArray(data.traders))
     throw new Error("invalid");
-  localStorage.setItem(KEY, JSON.stringify(data));
+  save(storeId, data);
 }

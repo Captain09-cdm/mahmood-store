@@ -1,5 +1,5 @@
-import FruitApp from './FruitApp';
+import StoreGate from './StoreGate';
 
 export default function Home() {
-  return <FruitApp displayName="بەڕێوەبەر" />;
+  return <StoreGate />;
 }

@@ -3,6 +3,7 @@ import './globals.css';
 import './extra.css';
 import './login.css';
 import './report.css';
+import './stores.css';
 
 export const metadata: Metadata = {
   title: 'Mahmood | سیستەمی میوەفرۆشی',

@@ -1,3 +1,25 @@
+.store-switch { border: 1px solid #c6dccc; border-radius: 12px; color: #245b44; background: #e8f4e6; min-height: 44px; padding: 8px 12px; font-size: 12px; max-width: 150px; }
+.brand h1 { overflow-wrap: anywhere; }
+.receipt-actions { flex-wrap: wrap; }
+.report-filters { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; margin-bottom: 14px; }
+.report-filters label { display: grid; gap: 7px; font-size: 12px; font-weight: 700; min-width: 0; }
+.report-filters input,.report-filters select { width: 100%; min-width: 0; min-height: 48px; padding: 10px; border: 1px solid #d9ddd3; border-radius: 12px; color: #17372d; background: #fbfcf8; font-size: 16px; }
+.report-presets { grid-column: 1/-1; display: flex; gap: 8px; flex-wrap: wrap; }
+.report-presets button,.batch-actions button { min-height: 44px; border: 1px solid #cbdccc; border-radius: 12px; background: #eef5e8; color: #245b44; padding: 10px 14px; font-size: 12px; font-weight: 700; }
+.report-hint { font-size: 12px; color: #68786f; line-height: 1.8; }
+.batch-toolbar { margin-bottom: 14px; }
+.batch-toolbar p { font-size: 12px; color: #68786f; line-height: 1.8; }
+.batch-actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0; }
+.batch-actions button:disabled { opacity: .45; cursor: not-allowed; }
+.batch-check { display: flex; align-items: center; gap: 8px; min-height: 44px; font-size: 12px; cursor: pointer; }
+.batch-check input { width: 22px; height: 22px; accent-color: #28765a; flex-shrink: 0; }
+.selectable-record { padding: 8px 0; border-top: 1px solid #e1e7dd; }
+.group-totals { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; background: #f1f6eb; padding: 13px; border-radius: 12px; font-size: 12px; line-height: 1.8; }
+.item-report-group + .item-report-group { margin-top: 22px; border-top: 2px solid #cbdccc; }
+.item-report-group h3 { margin: 10px 0; }
+.reportrow > div { min-width: 0; overflow-wrap: anywhere; }
+@media(max-width:480px) { .batch-actions { display: grid; grid-template-columns: 1fr; } .group-totals { grid-template-columns: 1fr; } .metric strong { font-size: 16px; overflow-wrap: anywhere; } .topbar .brand { min-width: 0; flex: 1; } .topbar { gap: 8px; } }
+@media(max-width:360px) { .report-filters { grid-template-columns: 1fr; } }
 .checkfield {
   display: flex;
   align-items: center;
@@ -520,52 +542,23 @@
     font-size: 11px;
   }
 }
+/* Isolate the selected print job: reports never overlap receipt batches. */
 @media print {
-  body * {
-    visibility: hidden;
-  }
-  .print-only,
-  .print-only * {
-    visibility: visible;
-  }
-  .print-only {
-    display: block;
-    position: absolute;
-    inset: 0;
-    width: 100%;
-  }
-  .report:has(.report-details),
-  .report:has(.report-details) * {
-    visibility: visible;
-  }
-  .report {
-    position: absolute;
-    inset: 0;
-    background: white;
-  }
-  .report .clearbtn,
-  .report .range button,
-  .report-title .secondary,
-  .bottomnav {
-    display: none;
-  }
-  .report .metricgrid {
-    grid-template-columns: repeat(4, 1fr);
-  }
-  .report .metric {
-    border: 1px solid #333;
-    background: white !important;
-    color: #111 !important;
-    padding: 9px;
-  }
-  .report .metric small {
-    color: #333;
-  }
-  .report .reportrow {
-    break-inside: avoid;
-  }
-  .report-title {
-    border-bottom: 2px solid #111;
-    padding-bottom: 10px;
-  }
+  @page { margin: 10mm; }
+  body * { visibility: hidden; }
+  .shell > .topbar, .shell > .content, .shell > .bottomnav,
+  .edit-overlay, .modalbackdrop { display: none !important; }
+  .shell { padding: 0; max-width: none; }
+  .print-root, .print-root * { visibility: visible; }
+  .print-root { display: block; position: static; width: 100%; }
+  .receipt-paper { padding: 0; }
+  .batch-receipt { break-after: page; }
+  .batch-receipt:last-child { break-after: auto; }
+  .report-document .metricgrid { grid-template-columns: repeat(2, 1fr); margin-top: 15px; }
+  .report-document .metric { border: 1px solid #777; background: white !important; color: #111 !important; padding: 9px; }
+  .report-document .metric small { color: #333; }
+  .report-document .reportrow, .report-document .group-totals { break-inside: avoid; }
+  .report-document h2 { break-after: avoid; }
+  .report-document .reportrow { grid-template-columns: 1fr 1fr 1fr; }
+  .report-document .reportrow > div:last-child { display: grid; grid-column: auto; }
 }
