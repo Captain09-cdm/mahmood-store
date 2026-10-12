@@ -1,0 +1,12 @@
+.store-login .loginlogo { color: white; background: linear-gradient(135deg,#17372d,#41936b); }
+.store-login { text-align: right; }
+.store-login h1,.store-login > p { text-align: center; }
+.store-login select { width: 100%; min-height: 52px; background: #f5f9f0; color: #17372d; border: 1px solid #cddcc9; border-radius: 14px; padding: 12px; font-size: 16px; }
+.store-login input { width: 100%; font-size: 16px; color: #17372d; background: #fbfcf8; }
+.store-login input[type=password] { direction: ltr; text-align: center; letter-spacing: 8px; font-size: 22px; }
+.store-login .store-toggle { width: 100%; color: #28765a; background: #eef5e8; border: 1px solid #d1e1c6; }
+.store-login button { min-height: 50px; }
+.store-login button:disabled { opacity: .5; }
+.store-login .store-help { color: #286241; background: #e9f5e6; padding: 12px; border-radius: 12px; font-size: 12px; }
+.store-login > small { color: #67756b; line-height: 1.9; }
+@media(max-width:430px) { .loginpage { padding: 16px; } .store-login { padding: 24px 18px; border-radius: 23px; } }
